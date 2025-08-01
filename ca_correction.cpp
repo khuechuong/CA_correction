@@ -64,52 +64,42 @@ void rmCA_(std::vector<cv::Mat> &bgrVec, int threshold)
         }
     });
 }
-
-void CACorrection(const cv::Mat &Src, cv::Mat &Dst)
-{
-    
-    std::vector<cv::Mat> bgrVec(3);
-    // auto t1 = std::chrono::high_resolution_clock::now();
-    cv::split(Src, bgrVec);
-    
-    // IMPORTANT: Allocate memory for each channel
+void parallelSplit(const cv::Mat &Src, std::vector<cv::Mat> &bgrVec) {
+    bgrVec.resize(3);
     for (int i = 0; i < 3; ++i)
-        bgrVec[i].create(Src.size(), CV_8UC1);
+        bgrVec[i] = cv::Mat(Src.rows, Src.cols, CV_8UC1);
 
     cv::parallel_for_(cv::Range(0, Src.rows), [&](const cv::Range &range) {
         for (int i = range.start; i < range.end; ++i) {
-            const cv::Vec3b* src_ptr = Src.ptr<cv::Vec3b>(i);
-            uchar* b_ptr = bgrVec[0].ptr<uchar>(i);
-            uchar* g_ptr = bgrVec[1].ptr<uchar>(i);
-            uchar* r_ptr = bgrVec[2].ptr<uchar>(i);
-
+            const cv::Vec3b *srcRow = Src.ptr<cv::Vec3b>(i);
+            uchar *bRow = bgrVec[0].ptr<uchar>(i);
+            uchar *gRow = bgrVec[1].ptr<uchar>(i);
+            uchar *rRow = bgrVec[2].ptr<uchar>(i);
             for (int j = 0; j < Src.cols; ++j) {
-                b_ptr[j] = src_ptr[j][0];
-                g_ptr[j] = src_ptr[j][1];
-                r_ptr[j] = src_ptr[j][2];
+                bRow[j] = srcRow[j][0];
+                gRow[j] = srcRow[j][1];
+                rRow[j] = srcRow[j][2];
             }
         }
     });
+}
 
+void CACorrection(const cv::Mat &Src, cv::Mat &Dst)
+{    
+    std::vector<cv::Mat> bgrVec(3);
+    // cv::split(Src, bgrVec);
+    parallelSplit(Src, bgrVec);
 
-    // auto t2 = std::chrono::high_resolution_clock::now();
     int threshold = 10;
-
     rmCA_(bgrVec, threshold);
 
-    // auto t3 = std::chrono::high_resolution_clock::now();
-    // for (auto &channel : bgrVec)
-    //     channel = channel.t();
     cv::parallel_for_(cv::Range(0, 3), [&](const cv::Range& range) {
         for (int i = range.start; i < range.end; ++i) {
             bgrVec[i] = bgrVec[i].t();
         }
     });
 
-    // auto t4 = std::chrono::high_resolution_clock::now();
     rmCA_(bgrVec, threshold);
-
-    // auto t5 = std::chrono::high_resolution_clock::now();
 
     // cv::merge(bgrVec, Dst);
     Dst.create(bgrVec[0].size(), CV_8UC3);
@@ -126,26 +116,73 @@ void CACorrection(const cv::Mat &Src, cv::Mat &Dst)
             }
         }
     });
-    // auto t6 = std::chrono::high_resolution_clock::now();
+    // Dst = Dst.t();
+    cv::Mat tmp = Dst;  // Shallow copy; avoids in-place mutation risk
+    cv::transpose(tmp, Dst);
+}
+
+void CACorrection_time(const cv::Mat &Src, cv::Mat &Dst)
+{    
+    std::vector<cv::Mat> bgrVec(3);
+    auto t1 = std::chrono::high_resolution_clock::now();
+    // cv::split(Src, bgrVec);
+    parallelSplit(Src, bgrVec);
+
+    auto t2 = std::chrono::high_resolution_clock::now();
+    int threshold = 10;
+
+    rmCA_(bgrVec, threshold);
+
+    auto t3 = std::chrono::high_resolution_clock::now();
+    // for (auto &channel : bgrVec)
+    //     channel = channel.t();
+    cv::parallel_for_(cv::Range(0, 3), [&](const cv::Range& range) {
+        for (int i = range.start; i < range.end; ++i) {
+            bgrVec[i] = bgrVec[i].t();
+        }
+    });
+
+    auto t4 = std::chrono::high_resolution_clock::now();
+    rmCA_(bgrVec, threshold);
+
+    auto t5 = std::chrono::high_resolution_clock::now();
+
+    // cv::merge(bgrVec, Dst);
+    Dst.create(bgrVec[0].size(), CV_8UC3);
+    cv::parallel_for_(cv::Range(0, Dst.rows), [&](const cv::Range &range) {
+        for (int i = range.start; i < range.end; ++i) {
+            cv::Vec3b* dst_ptr = Dst.ptr<cv::Vec3b>(i);
+            const uchar* b_ptr = bgrVec[0].ptr<uchar>(i);
+            const uchar* g_ptr = bgrVec[1].ptr<uchar>(i);
+            const uchar* r_ptr = bgrVec[2].ptr<uchar>(i);
+            for (int j = 0; j < Dst.cols; ++j) {
+                dst_ptr[j][0] = b_ptr[j];
+                dst_ptr[j][1] = g_ptr[j];
+                dst_ptr[j][2] = r_ptr[j];
+            }
+        }
+    });
+    auto t6 = std::chrono::high_resolution_clock::now();
     // Dst = Dst.t();
     cv::Mat tmp = Dst;  // Shallow copy; avoids in-place mutation risk
     cv::transpose(tmp, Dst);
     auto t7 = std::chrono::high_resolution_clock::now();
     
-    // double elapsed_ms0 = std::chrono::duration<double, std::milli>(t2 - t1).count();
-    // double elapsed_ms1 = std::chrono::duration<double, std::milli>(t3 - t2).count();
-    // double elapsed_ms2 = std::chrono::duration<double, std::milli>(t4 - t3).count();
-    // double elapsed_ms3 = std::chrono::duration<double, std::milli>(t5 - t4).count();
-    // double elapsed_ms4 = std::chrono::duration<double, std::milli>(t6 - t5).count();
-    // double elapsed_ms5 = std::chrono::duration<double, std::milli>(t7 - t6).count();
+    double elapsed_ms0 = std::chrono::duration<double, std::milli>(t2 - t1).count();
+    double elapsed_ms1 = std::chrono::duration<double, std::milli>(t3 - t2).count();
+    double elapsed_ms2 = std::chrono::duration<double, std::milli>(t4 - t3).count();
+    double elapsed_ms3 = std::chrono::duration<double, std::milli>(t5 - t4).count();
+    double elapsed_ms4 = std::chrono::duration<double, std::milli>(t6 - t5).count();
+    double elapsed_ms5 = std::chrono::duration<double, std::milli>(t7 - t6).count();
 
-    // std::cout << "Split time: " << elapsed_ms0 << " ms" << std::endl;
-    // std::cout << "rmCA time: " << elapsed_ms1 << " ms" << std::endl;
-    // std::cout << "3 .t time: " << elapsed_ms2 << " ms" << std::endl;
-    // std::cout << "rmCA time: " << elapsed_ms3 << " ms" << std::endl;
-    // std::cout << "merge time: " << elapsed_ms4 << " ms" << std::endl;
-    // std::cout << ".t time: " << elapsed_ms5 << " ms" << std::endl;
+    std::cout << "Split time: " << elapsed_ms0 << " ms" << std::endl;
+    std::cout << "rmCA time: " << elapsed_ms1 << " ms" << std::endl;
+    std::cout << "3 .t time: " << elapsed_ms2 << " ms" << std::endl;
+    std::cout << "rmCA time: " << elapsed_ms3 << " ms" << std::endl;
+    std::cout << "merge time: " << elapsed_ms4 << " ms" << std::endl;
+    std::cout << ".t time: " << elapsed_ms5 << " ms" << std::endl;
 }
+
 
 int main(int argc, char** argv)
 {
@@ -164,7 +201,7 @@ int main(int argc, char** argv)
     // Start timer
     auto t_start = std::chrono::high_resolution_clock::now();
     cv::Mat corrected;
-    CACorrection(img, corrected);
+    CACorrection_time(img, corrected);
     // Stop timer
     auto t_end = std::chrono::high_resolution_clock::now();
     double elapsed_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
