@@ -3,7 +3,7 @@ Chromatic Abberation Correction
 
 A speed optimized version of [Chromatic_aberration_correction](https://github.com/RayXie29/Chromatic_aberration_correction). 
 
-Chromatic aberration correction completed in approximate 18 ms for a 2.8 MP (1936×1464) image.
+Chromatic aberration correction completed in approximate 17 ms for a 2.8 MP (1936×1464) image.
 
 ## Instruction
 ```
